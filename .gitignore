@@ -1,0 +1,26 @@
+# ОС
+.DS_Store
+Thumbs.db
+# секреты и окружения
+.env
+.venv/
+venv/
+# python
+__pycache__/
+*.pyc
+# сгенерированные модели (make init)
+model_repository/*/1/model.onnx
+model_repository/*/1/model.onnx.data
+# результаты грейдера (наполняются в рантайме)
+hw/03_realtime_nlp_cv/grader/results/*.jsonl
+hw/03_realtime_nlp_cv/grader/results/*.md
+hw/03_realtime_nlp_cv/grader/results/*.csv
+# qdrant data (наполняется в рантайме)
+06_llm_gateway/qdrant_data/
+# airflow runtime
+03_compose_mlops/logs/
+
+**/untracked*
+**/*.js
+**/.DS_Store
+00_intro
