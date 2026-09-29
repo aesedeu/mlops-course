@@ -1,0 +1,20 @@
+# Игрушечный Celery: брокер Redis + воркер(ы) + клиент.
+# Отдельный compose-проект, не пересекается с основным стеком.
+name: celery-demo
+
+services:
+  redis:
+    image: redis:7
+
+  worker:
+    build: .
+    # -A tasks      — где лежит Celery-приложение
+    # --concurrency — сколько задач один воркер берёт параллельно
+    command: celery -A tasks worker --loglevel=info --concurrency=2
+    depends_on: [redis]
+
+  client:
+    build: .
+    command: python client.py
+    # без depends_on: иначе `run client` пересоздаст воркеры и сбросит --scale
+    profiles: [client]   # не стартует на `up`, запускается через `run`

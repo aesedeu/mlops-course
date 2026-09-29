@@ -1,0 +1,16 @@
+# Локальный override ТОЛЬКО для macOS (не для студентов/Linux).
+# Docker Compose подхватывает этот файл автоматически.
+services:
+  # На маке порт 5000 занят системным AirPlay Receiver (Control Center),
+  # поэтому публикуем MLflow на 5050. Внутри сети сервис остаётся на :5000.
+  mlflow:
+    # !override заменяет список портов из базового файла целиком
+    # (иначе Compose сливает и остаётся конфликтный 5000:5000).
+    ports: !override
+      - "5050:5000"
+
+  # Docker Desktop for Mac не поддерживает rslave для / — монтируем без него.
+  # Метрики будут от Linux-VM Docker Desktop, а не от самого мака.
+  node-exporter:
+    volumes: !override
+      - /:/host:ro

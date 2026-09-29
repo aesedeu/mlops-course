@@ -1,0 +1,353 @@
+# ============================================================================
+#  03_compose_mlops — MLOps-стек одним docker-compose
+#  Автор материалов: Чернов Евгений (НИУ ВШЭ, магистратура «Искусственный интеллект»)
+#
+#  Сервисы: Airflow (CeleryExecutor) + MLflow + MinIO + Prometheus/Grafana
+#  Ключ `version:` намеренно НЕ используется — он устарел (Compose Spec его игнорирует).
+# ============================================================================
+
+# --- Общий блок для всех Airflow-сервисов (YAML anchor) -----------------------
+# Все Airflow-контейнеры (webserver, scheduler, worker, flower, init) поднимаются
+# из одного образа с одинаковыми env и volume. Чтобы не дублировать это пять раз,
+# выносим общую часть в anchor &airflow-common и подмешиваем через <<: *airflow-common.
+x-airflow-common: &airflow-common
+  image: apache/airflow:2.9.3-python3.11
+  # _PIP_ADDITIONAL_REQUIREMENTS доставит ML-библиотеки в контейнер при старте.
+  # Для семинара это проще, чем свой Dockerfile. В проде так делать НЕ надо —
+  # там собирают образ заранее (первый старт медленный: idет pip install).
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    # health-сервер scheduler на :8974 — его опрашивает healthcheck сервиса
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # --- Метрики Airflow → statsd-exporter → Prometheus ---
+    AIRFLOW__METRICS__STATSD_ON: "true"
+    AIRFLOW__METRICS__STATSD_HOST: statsd-exporter
+    AIRFLOW__METRICS__STATSD_PORT: "9125"
+    AIRFLOW__METRICS__STATSD_PREFIX: airflow
+    # --- MLflow / MinIO (S3) ---
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    # --- Логи задач в S3 (MinIO): воркер выгружает лог по завершении задачи,
+    #     webserver читает его оттуда. Локальная копия в ./logs остаётся. ---
+    AIRFLOW__LOGGING__REMOTE_LOGGING: "true"
+    AIRFLOW__LOGGING__REMOTE_BASE_LOG_FOLDER: s3://airflow-logs
+    AIRFLOW__LOGGING__REMOTE_LOG_CONN_ID: minio_s3
+    AIRFLOW__LOGGING__ENCRYPT_S3_LOGS: "false"
+    # Подключение minio_s3 задаём через env — без кликов в UI.
+    AIRFLOW_CONN_MINIO_S3: >-
+      {"conn_type": "aws",
+       "login": "${MINIO_ROOT_USER:-minioadmin}",
+       "password": "${MINIO_ROOT_PASSWORD:-minioadmin}",
+       "extra": {"endpoint_url": "http://minio:9000"}}
+    # Прикладная БД для DAG-а db_demo (отдельная база app в том же Postgres).
+    AIRFLOW_CONN_APP_DB: >-
+      {"conn_type": "postgres", "host": "postgres", "port": 5432,
+       "login": "app", "password": "app", "schema": "app"}
+    # Доустанавливаем ML-библиотеки в контейнер Airflow при старте.
+    _PIP_ADDITIONAL_REQUIREMENTS: "mlflow==2.14.1 scikit-learn==1.5.1 boto3==1.34.145 pandas"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    - ./config:/opt/airflow/config
+  # AIRFLOW_UID выравнивает владельца файлов в volume с вашим пользователем (Linux).
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on: &airflow-common-depends-on
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  # ==========================================================================
+  #  Хранилища состояния: Postgres (метаданные) + Redis (брокер Celery)
+  # ==========================================================================
+  postgres:
+    image: postgres:15
+    container_name: mlops-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # init-скрипт создаёт вторую БД (mlflow) и пользователя mlflow при первом старте.
+      - ./config/postgres-init.sh:/docker-entrypoint-initdb.d/10-init-mlflow-db.sh:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    container_name: mlops-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  # ==========================================================================
+  #  Хранилище артефактов: MinIO (S3-совместимое) + one-shot создание бакета
+  # ==========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: mlops-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web-консоль
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: mlops-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    # mc настраивает alias на наш MinIO и создаёт бакеты (идемпотентно):
+    # mlflow — артефакты, airflow-logs — логи задач, incoming — входящие файлы для sensor_demo.
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin} &&
+      mc mb --ignore-existing local/mlflow &&
+      mc mb --ignore-existing local/airflow-logs &&
+      mc mb --ignore-existing local/incoming &&
+      echo '>>> buckets mlflow, airflow-logs, incoming ready' ;
+      "
+    restart: "no"
+
+  # ==========================================================================
+  #  MLflow tracking server (backend-store = Postgres, artifacts = MinIO)
+  # ==========================================================================
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.1
+    container_name: mlops-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    # Официальный образ не содержит psycopg2/boto3 — доставляем их перед запуском сервера.
+    command: >
+      /bin/sh -c "
+      pip install --no-cache-dir psycopg2-binary boto3 &&
+      mlflow server
+      --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://mlflow:mlflow@postgres/mlflow
+      --artifacts-destination s3://mlflow
+      --serve-artifacts
+      "
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    restart: unless-stopped
+
+  # ==========================================================================
+  #  Airflow: init (one-shot) + webserver + scheduler + worker + flower
+  # ==========================================================================
+  airflow-init:
+    <<: *airflow-common
+    container_name: mlops-airflow-init
+    # Прогоняем миграции БД и создаём admin/admin. Запускается один раз (`make init`).
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin --password admin \
+          --firstname Air --lastname Flow \
+          --role Admin --email admin@example.com || true
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: mlops-airflow-webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: mlops-airflow-scheduler
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-worker:
+    <<: *airflow-common
+    container_name: mlops-airflow-worker
+    command: celery worker
+    # Даём воркеру время на pip install зависимостей перед healthcheck.
+    healthcheck:
+      test: ["CMD-SHELL", 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-flower:
+    <<: *airflow-common
+    container_name: mlops-airflow-flower
+    command: celery flower
+    ports:
+      - "5555:5555"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  # ==========================================================================
+  #  Observability: Prometheus + Grafana + экспортёры
+  # ==========================================================================
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: mlops-prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: mlops-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    container_name: mlops-node-exporter
+    command:
+      - "--path.rootfs=/host"
+    volumes:
+      - /:/host:ro,rslave
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.15.0
+    container_name: mlops-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://airflow:airflow@postgres:5432/airflow?sslmode=disable"
+    ports:
+      - "9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  statsd-exporter:
+    image: prom/statsd-exporter:v0.26.1
+    container_name: mlops-statsd-exporter
+    command:
+      - "--statsd.mapping-config=/etc/statsd/statsd-mapping.yml"
+      - "--statsd.listen-udp=:9125"
+      - "--web.listen-address=:9102"
+    volumes:
+      - ./config/statsd-mapping.yml:/etc/statsd/statsd-mapping.yml:ro
+    ports:
+      - "9102:9102"   # /metrics для Prometheus
+      - "9125:9125/udp"   # приём statsd от Airflow
+    restart: unless-stopped
+
+# --- Именованные volume: переживают down/up, чистятся только `docker compose down -v` ---
+volumes:
+  postgres-data:
+  minio-data:
+  grafana-data:
+  prometheus-data:
