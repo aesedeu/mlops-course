@@ -7,7 +7,7 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help up down logs ps restart init trigger-train trigger-infer
+.PHONY: help up down prune logs ps restart init trigger-train trigger-infer
 
 ## help: показать список команд
 help:
@@ -15,6 +15,7 @@ help:
 	@echo "  make up             — поднять весь стек в фоне"
 	@echo "  make init           — миграции Airflow + admin/admin + бакет MinIO (one-shot)"
 	@echo "  make down           — остановить и удалить контейнеры (volume сохраняются)"
+	@echo "  make prune          — то же + удалить volume: БД, MinIO, Grafana, Prometheus (всё с нуля)"
 	@echo "  make restart        — down + up"
 	@echo "  make ps             — статус контейнеров"
 	@echo "  make logs           — «хвост» логов всех сервисов (Ctrl+C для выхода)"
@@ -33,8 +34,14 @@ up:
 
 ## down: остановить и удалить контейнеры (данные в volume остаются)
 down:
-	@echo ">>> Останавливаем стек. Данные сохраняются (для полной очистки: docker compose down -v)."
+	@echo ">>> Останавливаем стек. Данные сохраняются (для полной очистки: make prune)."
 	docker compose down
+
+## prune: остановить стек и удалить volume — все данные (БД, бакеты, дашборды, метрики)
+prune:
+	@echo ">>> Удаляем контейнеры И volume: Postgres (Airflow, MLflow, app), MinIO, Grafana, Prometheus."
+	@echo ">>> После этого нужен make init && make up."
+	docker compose down -v --remove-orphans
 
 ## restart: пересоздать стек
 restart: down up

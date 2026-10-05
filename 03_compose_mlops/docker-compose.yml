@@ -51,6 +51,8 @@ x-airflow-common: &airflow-common
     AIRFLOW_CONN_APP_DB: >-
       {"conn_type": "postgres", "host": "postgres", "port": 5432,
        "login": "app", "password": "app", "schema": "app"}
+    # MLflow пытается прочитать git-коммит кода; git в образе нет — глушим предупреждение.
+    GIT_PYTHON_REFRESH: quiet
     # Доустанавливаем ML-библиотеки в контейнер Airflow при старте.
     _PIP_ADDITIONAL_REQUIREMENTS: "mlflow==2.14.1 scikit-learn==1.5.1 boto3==1.34.145 pandas"
   volumes:
