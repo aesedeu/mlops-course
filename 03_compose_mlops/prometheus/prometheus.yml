@@ -1,0 +1,46 @@
+# ============================================================================
+#  Prometheus — конфигурация сбора метрик MLOps-стека
+#  Автор материалов: Чернов Евгений
+#
+#  Prometheus периодически (scrape_interval) опрашивает HTTP-эндпоинты /metrics
+#  у экспортёров и сохраняет временные ряды в свою TSDB.
+#  Имена таргетов — это имена сервисов из docker-compose (внутренний DNS Docker).
+# ============================================================================
+
+global:
+  scrape_interval: 15s        # как часто опрашивать таргеты
+  evaluation_interval: 15s
+
+scrape_configs:
+  # --- Сам Prometheus (self-monitoring) -----------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # --- Хост-метрики: CPU, RAM, диск, сеть ---------------------------------
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  # --- Метрики Postgres (соединения, транзакции, размеры БД) --------------
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  # --- Метрики Airflow ----------------------------------------------------
+  # Airflow шлёт метрики по протоколу statsd (UDP) в statsd-exporter,
+  # а тот превращает их в prometheus-метрики и отдаёт по HTTP на :9102.
+  - job_name: airflow-statsd
+    static_configs:
+      - targets: ["statsd-exporter:9102"]
+
+  # --- MLflow -------------------------------------------------------------
+  # ВНИМАНИЕ: MLflow из коробки НЕ отдаёт метрики в формате Prometheus.
+  # Эндпоинта /metrics у mlflow server нет, поэтому отдельного экспортёра
+  # или прокси-инструментатора здесь нет — задание оставлено осознанно
+  # закомментированным. Наблюдать за MLflow можно косвенно: через
+  # node-exporter (нагрузка процесса) и postgres-exporter (backend-store).
+  #
+  # - job_name: mlflow
+  #   static_configs:
+  #     - targets: ["mlflow:5000"]   # требует внешнего prometheus-exporter'а

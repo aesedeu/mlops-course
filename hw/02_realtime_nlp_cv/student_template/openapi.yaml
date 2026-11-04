@@ -1,0 +1,324 @@
+openapi: 3.0.3
+info:
+  title: Real-time Inference Gateway — контракт ДЗ
+  description: >
+    Единый gateway к Triton (CV, модель вашего варианта) и vLLM (NLP, Qwen2.5-1.5B).
+    Защищённые ручки требуют Bearer-JWT (HS256). Грейдер проверяет ровно эти схемы —
+    соблюдайте имена полей, коды ответов и формат SSE. Полное описание — в ЗАДАНИЕ.md / API_CONTRACT.md.
+  version: "1.0"
+  contact:
+    name: Чернов Евгений
+    url: https://www.hse.ru
+
+servers:
+  - url: http://localhost:8080
+    description: Локальный запуск
+  - url: http://HOST:8080
+    description: Ваш публичный base_url (передаётся грейдеру)
+
+tags:
+  - name: Служебные
+    description: Живость и метрики (без авторизации)
+  - name: Бэкенды
+    description: Готовность инференс-бэкендов Triton и vLLM (без авторизации)
+  - name: Инференс
+    description: Основные ручки (нужен Bearer-токен)
+
+paths:
+  /health:
+    get:
+      tags: [Служебные]
+      summary: Живость gateway
+      security: []
+      responses:
+        "200":
+          description: Сервис жив
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                required: [status]
+
+  /metrics:
+    get:
+      tags: [Служебные]
+      summary: Prometheus-метрики gateway
+      security: []
+      responses:
+        "200":
+          description: Метрики в text-exposition формате
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /metrics/triton:
+    get:
+      tags: [Служебные]
+      summary: Проброс метрик Triton (:8002/metrics)
+      security: []
+      responses:
+        "200":
+          description: Метрики Triton (text/plain)
+          content:
+            text/plain: { schema: { type: string } }
+        "502": { $ref: "#/components/responses/BackendUnavailable" }
+
+  /metrics/vllm:
+    get:
+      tags: [Служебные]
+      summary: Проброс метрик vLLM (/metrics)
+      security: []
+      responses:
+        "200":
+          description: Метрики vLLM (text/plain)
+          content:
+            text/plain: { schema: { type: string } }
+        "502": { $ref: "#/components/responses/BackendUnavailable" }
+
+  /metrics/node:
+    get:
+      tags: [Служебные]
+      summary: Проброс метрик node-exporter (:9100/metrics) — метрики хоста
+      security: []
+      responses:
+        "200":
+          description: Метрики хоста (text/plain)
+          content:
+            text/plain: { schema: { type: string } }
+        "502": { $ref: "#/components/responses/BackendUnavailable" }
+
+  /triton/health:
+    get:
+      tags: [Бэкенды]
+      summary: Готовность Triton
+      description: Gateway опрашивает Triton `GET /v2/health/ready`.
+      security: []
+      responses:
+        "200":
+          description: Triton готов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TritonHealth" }
+        "503": { $ref: "#/components/responses/BackendNotReady" }
+
+  /vllm/health:
+    get:
+      tags: [Бэкенды]
+      summary: Готовность vLLM
+      description: Gateway опрашивает vLLM `GET /v1/models`.
+      security: []
+      responses:
+        "200":
+          description: vLLM готов
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VllmHealth" }
+        "503": { $ref: "#/components/responses/BackendNotReady" }
+
+  /info:
+    get:
+      tags: [Инференс]
+      summary: Данные студента, модели и GPU
+      responses:
+        "200":
+          description: Информация о сдающем
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Info" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /vision:
+    post:
+      tags: [Инференс]
+      summary: Классификация изображения (модель варианта → top-5)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Изображение jpg/png
+              required: [file]
+      responses:
+        "200":
+          description: Топ-5 предсказаний ImageNet
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VisionResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "502": { $ref: "#/components/responses/BackendUnavailable" }
+
+  /chat:
+    post:
+      tags: [Инференс]
+      summary: Чат с LLM (стриминг SSE)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatRequest" }
+      responses:
+        "200":
+          description: >
+            При `stream: true` — поток SSE (`text/event-stream`), OpenAI-совместимые чанки
+            `data: {"choices":[{"delta":{"content":"..."}}]}` и завершающий `data: [DONE]`.
+            При `stream: false` — обычный JSON vLLM (chat.completion).
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  data: {"choices":[{"delta":{"content":"PO"}}]}
+
+                  data: {"choices":[{"delta":{"content":"NG"}}]}
+
+                  data: [DONE]
+            application/json:
+              schema:
+                type: object
+                description: chat.completion (при stream=false)
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "502": { $ref: "#/components/responses/BackendUnavailable" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    TritonHealth:
+      type: object
+      properties:
+        backend: { type: string, example: triton }
+        ready: { type: boolean, example: true }
+        model: { type: string, example: efficientnet_b0 }
+      required: [backend, ready]
+
+    VllmHealth:
+      type: object
+      properties:
+        backend: { type: string, example: vllm }
+        ready: { type: boolean, example: true }
+        models:
+          type: array
+          items: { type: string }
+          example: ["Qwen2.5-1.5B-Instruct"]
+      required: [backend, ready]
+
+    Info:
+      type: object
+      properties:
+        student:
+          type: object
+          properties:
+            name: { type: string, example: Иван Иванов }
+            email: { type: string, example: ivan@edu.hse.ru }
+          required: [name, email]
+        models:
+          type: object
+          properties:
+            vision: { type: string, example: efficientnet_b0 }
+            llm: { type: string, example: Qwen2.5-1.5B-Instruct }
+          required: [vision, llm]
+        gpu:
+          type: string
+          description: Название видеокарты (обязательно, непустое), напр. из `nvidia-smi`
+          example: NVIDIA A100-SXM4-40GB
+        version: { type: string, example: "1.0" }
+      required: [student, models, gpu, version]
+
+    Prediction:
+      type: object
+      properties:
+        class_id:
+          type: integer
+          description: Индекс ImageNet-1k (стандартный порядок torchvision)
+          example: 207
+        label: { type: string, example: golden retriever }
+        score:
+          type: number
+          format: float
+          description: Вероятность после softmax (0..1)
+          example: 0.92
+      required: [class_id, label, score]
+
+    VisionResponse:
+      type: object
+      properties:
+        model: { type: string, example: efficientnet_b0 }
+        predictions:
+          type: array
+          minItems: 5
+          maxItems: 5
+          description: Ровно top-5, по убыванию score
+          items: { $ref: "#/components/schemas/Prediction" }
+        latency_ms:
+          type: number
+          format: float
+          example: 12.3
+      required: [model, predictions, latency_ms]
+
+    ChatMessage:
+      type: object
+      properties:
+        role: { type: string, enum: [system, user, assistant], example: user }
+        content: { type: string, example: "Respond with exactly one word: PONG" }
+      required: [role, content]
+
+    ChatRequest:
+      type: object
+      properties:
+        messages:
+          type: array
+          items: { $ref: "#/components/schemas/ChatMessage" }
+        max_tokens: { type: integer, default: 128, example: 128 }
+        temperature: { type: number, default: 0.0, example: 0.0 }
+        stream: { type: boolean, default: true, example: true }
+      required: [messages]
+
+    Error:
+      type: object
+      properties:
+        detail: { type: string }
+      required: [detail]
+
+  responses:
+    Unauthorized:
+      description: Нет/невалидный Bearer-токен
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Некорректный запрос (пустой/битый файл, нет messages, битый JSON)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: Нет обязательного поля (например, `file`)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BackendUnavailable:
+      description: Бэкенд недоступен / вернул ошибку
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BackendNotReady:
+      description: Бэкенд не готов
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+security:
+  - bearerAuth: []

@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" width="1000" height="620" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#F76266"/>
+    </marker>
+    <marker id="arrowDash" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#7A83A8"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect x="0" y="0" width="1000" height="620" fill="#F4F5F9"/>
+
+  <!-- Title -->
+  <text x="500" y="34" text-anchor="middle" font-size="22" font-weight="bold" fill="#21285C">Real-time NLP/CV инференс — архитектура</text>
+
+  <!-- Client / Grader -->
+  <rect x="30" y="240" width="150" height="90" rx="12" fill="#2B3470"/>
+  <text x="105" y="280" text-anchor="middle" font-size="15" font-weight="bold" fill="#FFFFFF">Клиент /</text>
+  <text x="105" y="300" text-anchor="middle" font-size="15" font-weight="bold" fill="#FFFFFF">Грейдер</text>
+
+  <!-- Client -> Gateway -->
+  <line x1="180" y1="285" x2="330" y2="285" stroke="#F76266" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="255" y="276" text-anchor="middle" font-size="11" fill="#21285C">HTTP</text>
+
+  <!-- Gateway -->
+  <rect x="330" y="150" width="290" height="270" rx="14" fill="#21285C"/>
+  <text x="475" y="182" text-anchor="middle" font-size="17" font-weight="bold" fill="#FFFFFF">Gateway (FastAPI)</text>
+  <text x="475" y="201" text-anchor="middle" font-size="12" fill="#B9C0E0">порт :8080</text>
+
+  <!-- Public group -->
+  <rect x="350" y="216" width="250" height="86" rx="8" fill="#2B3470"/>
+  <text x="362" y="234" font-size="11.5" font-weight="bold" fill="#8CE0B0">Без авторизации</text>
+  <text x="362" y="253" font-size="11.5" font-family="Menlo, monospace" fill="#FFFFFF">GET /health   GET /metrics</text>
+  <text x="362" y="271" font-size="11.5" font-family="Menlo, monospace" fill="#FFFFFF">GET /triton/health</text>
+  <text x="362" y="289" font-size="11.5" font-family="Menlo, monospace" fill="#FFFFFF">GET /vllm/health</text>
+
+  <!-- Protected group -->
+  <rect x="350" y="312" width="250" height="90" rx="8" fill="#2B3470" stroke="#F76266" stroke-width="1.5"/>
+  <text x="362" y="330" font-size="11.5" font-weight="bold" fill="#F76266">🔒 Bearer JWT</text>
+  <text x="362" y="351" font-size="11.5" font-family="Menlo, monospace" fill="#FFFFFF">GET /info</text>
+  <text x="362" y="369" font-size="11.5" font-family="Menlo, monospace" fill="#FFFFFF">POST /vision</text>
+  <text x="362" y="387" font-size="11.5" font-family="Menlo, monospace" fill="#FFFFFF">POST /chat</text>
+
+  <!-- Gateway -> Triton -->
+  <line x1="620" y1="215" x2="800" y2="175" stroke="#F76266" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="710" y="180" text-anchor="middle" font-size="11" font-weight="bold" fill="#21285C">POST /vision</text>
+
+  <!-- Gateway -> vLLM -->
+  <line x1="620" y1="360" x2="800" y2="400" stroke="#F76266" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="710" y="392" text-anchor="middle" font-size="11" font-weight="bold" fill="#21285C">POST /chat (SSE)</text>
+
+  <!-- Triton -->
+  <rect x="800" y="130" width="175" height="100" rx="12" fill="#2B3470"/>
+  <text x="887" y="158" text-anchor="middle" font-size="15" font-weight="bold" fill="#FFFFFF">Triton</text>
+  <text x="887" y="176" text-anchor="middle" font-size="12" fill="#B9C0E0">Inference Server :8000</text>
+  <text x="887" y="196" text-anchor="middle" font-size="11.5" fill="#FFFFFF">ResNet50 / ONNX</text>
+  <text x="887" y="214" text-anchor="middle" font-size="10.5" fill="#8CE0B0">GET /triton/health</text>
+
+  <!-- vLLM -->
+  <rect x="800" y="345" width="175" height="105" rx="12" fill="#2B3470"/>
+  <text x="887" y="373" text-anchor="middle" font-size="15" font-weight="bold" fill="#FFFFFF">vLLM</text>
+  <text x="887" y="391" text-anchor="middle" font-size="12" fill="#B9C0E0">OpenAI API :8000</text>
+  <text x="887" y="411" text-anchor="middle" font-size="11" fill="#FFFFFF">Qwen2.5-1.5B-Instruct</text>
+  <text x="887" y="429" text-anchor="middle" font-size="10.5" fill="#8CE0B0">GET /vllm/health</text>
+
+  <!-- Shared GPU -->
+  <rect x="800" y="240" width="175" height="95" rx="10" fill="none" stroke="#F76266" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="887" y="291" text-anchor="middle" font-size="12" font-weight="bold" fill="#F76266">Общий GPU</text>
+  <text x="887" y="309" text-anchor="middle" font-size="10.5" fill="#7A83A8">Triton + vLLM</text>
+
+  <!-- Prometheus -->
+  <rect x="360" y="500" width="230" height="80" rx="12" fill="#21285C"/>
+  <text x="475" y="533" text-anchor="middle" font-size="16" font-weight="bold" fill="#FFFFFF">Prometheus</text>
+  <text x="475" y="555" text-anchor="middle" font-size="12" fill="#B9C0E0">:9090</text>
+
+  <!-- node-exporter -->
+  <rect x="660" y="510" width="180" height="60" rx="10" fill="#2B3470"/>
+  <text x="750" y="535" text-anchor="middle" font-size="13" font-weight="bold" fill="#FFFFFF">node-exporter</text>
+  <text x="750" y="553" text-anchor="middle" font-size="11" fill="#B9C0E0">:9100</text>
+
+  <!-- Scrape arrows (dashed) -->
+  <!-- to Gateway -->
+  <line x1="450" y1="500" x2="460" y2="422" stroke="#7A83A8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
+  <!-- to Triton -->
+  <line x1="560" y1="502" x2="805" y2="228" stroke="#7A83A8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
+  <!-- to vLLM -->
+  <line x1="575" y1="512" x2="800" y2="440" stroke="#7A83A8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
+  <!-- to node-exporter -->
+  <line x1="590" y1="540" x2="658" y2="540" stroke="#7A83A8" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrowDash)"/>
+  <text x="475" y="470" text-anchor="middle" font-size="11" fill="#7A83A8">scrape /metrics</text>
+
+  <!-- Footer -->
+  <text x="500" y="606" text-anchor="middle" font-size="11" fill="#7A83A8">Магистратура НИУ ВШЭ «ИИ», курс MLOps/LLMOps</text>
+</svg>

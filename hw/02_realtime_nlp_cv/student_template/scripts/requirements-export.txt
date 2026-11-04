@@ -1,0 +1,9 @@
+# Зависимости для экспорта ResNet50 → ONNX (`make init`).
+# `make init` создаёт venv `.venv` и ставит их туда — в систему ничего не попадает.
+# torch/torchvision берутся CPU-сборкой (для разовой конвертации GPU не нужен):
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision
+#   pip install onnx
+# Скрипт экспорта форсит dynamo=False на torch>=2.5 → единый model.onnx без onnxscript.
+torch
+torchvision
+onnx

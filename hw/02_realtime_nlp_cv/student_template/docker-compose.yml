@@ -1,0 +1,56 @@
+# Стек ДЗ: Triton + vLLM + gateway + Prometheus + node-exporter — СКЕЛЕТ.
+# Сервисы triton/vllm/gateway допишите сами (# TODO). Обе модели делят один GPU.
+name: hw-realtime-inference
+
+services:
+  triton:
+    # TODO: image — Triton 24.06 через зеркало NGC по digest (см. ЗАДАНИЕ.md, раздел 2),
+    #       command (tritonserver --model-repository=/models, загрузить
+    #       только модель варианта ${CV_MODEL}, метрики на :8002 вкл. GPU-метрики),
+    #       проброс GPU (deploy.resources.reservations.devices, driver nvidia).
+    volumes:
+      - ./model_repository:/models
+    ports:
+      - "8002:8002"
+    shm_size: "2gb"
+    restart: unless-stopped
+
+  vllm:
+    # TODO: image (vLLM — закрепите версию, не latest), command (--model,
+    #       --served-model-name ${LLM_MODEL}, --gpu-memory-utilization, --max-model-len), проброс GPU.
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-}
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    ipc: host
+    restart: unless-stopped
+
+  gateway:
+    build: ./gateway
+    # TODO: environment — JWT_SECRET (обязателен), CV_MODEL, TRITON_URL, VLLM_URL, адреса
+    #       метрик, GPU_NAME, данные студента. Порт наружу (внутри 8080).
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    depends_on:
+      - triton
+      - vllm
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.1
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+volumes:
+  hf_cache:
+  prometheus_data:

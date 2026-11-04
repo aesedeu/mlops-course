@@ -1,0 +1,22 @@
+# ============================================================================
+#  Grafana provisioning — провайдер дашбордов
+#  Автор материалов: Чернов Евгений
+#
+#  Указывает Grafana читать JSON-дашборды из каталога /var/lib/grafana/dashboards
+#  (туда смонтирована папка ./grafana/dashboards). Все *.json оттуда появятся
+#  в UI автоматически после старта.
+# ============================================================================
+apiVersion: 1
+
+providers:
+  - name: MLOps dashboards
+    orgId: 1
+    folder: MLOps
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

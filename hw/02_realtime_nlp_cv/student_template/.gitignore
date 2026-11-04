@@ -1,0 +1,9 @@
+# окружение и секреты
+.env
+.venv/
+__pycache__/
+*.pyc
+# экспортированная модель (генерируется make init)
+model_repository/*/1/model.onnx
+model_repository/*/1/model.onnx.data
+.DS_Store

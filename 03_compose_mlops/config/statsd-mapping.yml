@@ -1,0 +1,104 @@
+# ============================================================================
+#  statsd-exporter mapping — правила преобразования statsd-метрик Airflow
+#  в метрики Prometheus.
+#  Автор материалов: Чернов Евгений
+#
+#  Airflow шлёт метрики с точками в имени, напр.:
+#      airflow.dag.train_model.train_and_register.duration
+#      airflow.ti_failures
+#      airflow.pool.open_slots.default_pool
+#  Без mapping statsd-exporter превратил бы каждую в отдельную метрику с
+#  «взорвавшимся» именем. Здесь мы группируем их в аккуратные метрики с
+#  labels — так их удобно строить в Grafana.
+#
+#  Правила проверяются сверху вниз; срабатывает первое совпавшее.
+# ============================================================================
+
+mappings:
+  # --- Общие агрегаты без dag_id — отбрасываем ----------------------------
+  # Airflow шлёт одну и ту же метрику дважды: общую (dagrun.duration.success)
+  # и по DAG-у (dagrun.duration.success.<dag_id>). Если оставить обе, они
+  # попадут в одно имя с разным набором labels, и statsd-exporter молча
+  # выкинет вариант с dag_id. Оставляем только разметку по DAG/задаче.
+  - match: "airflow.dagrun.duration.success"
+    action: drop
+    name: "dropped"
+  - match: "airflow.dagrun.duration.failed"
+    action: drop
+    name: "dropped"
+  - match: "airflow.task.duration"
+    action: drop
+    name: "dropped"
+  - match: "airflow.task.queued_duration"
+    action: drop
+    name: "dropped"
+
+  # --- Длительность выполнения задачи -> labels dag_id, task_id -----------
+  - match: "airflow.dag.*.*.duration"
+    name: "airflow_task_duration"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+  - match: "airflow.dag.*.*.queued_duration"
+    name: "airflow_task_queued_duration"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+
+  # --- Старт / завершение task instance -> labels dag_id, task_id, state --
+  - match: "airflow.ti.finish.*.*.*"
+    name: "airflow_ti_finish"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+      state: "$3"
+  - match: "airflow.ti.start.*.*"
+    name: "airflow_ti_start"
+    labels:
+      dag_id: "$1"
+      task_id: "$2"
+
+  # --- Успешные / упавшие запуски DAG -------------------------------------
+  - match: "airflow.dagrun.duration.success.*"
+    name: "airflow_dagrun_duration_success"
+    labels:
+      dag_id: "$1"
+  - match: "airflow.dagrun.duration.failed.*"
+    name: "airflow_dagrun_duration_failed"
+    labels:
+      dag_id: "$1"
+
+  # --- Слоты пула (загрузка исполнителя) ----------------------------------
+  - match: "airflow.pool.open_slots.*"
+    name: "airflow_pool_open_slots"
+    labels:
+      pool: "$1"
+  - match: "airflow.pool.used_slots.*"
+    name: "airflow_pool_used_slots"
+    labels:
+      pool: "$1"
+
+  # --- Счётчики упавших / успешных task instance --------------------------
+  - match: "airflow.ti_failures"
+    name: "airflow_ti_failures"
+  - match: "airflow.ti_successes"
+    name: "airflow_ti_successes"
+
+  # --- Здоровье планировщика ----------------------------------------------
+  - match: "airflow.scheduler.heartbeat"
+    name: "airflow_scheduler_heartbeat"
+  - match: "airflow.scheduler.tasks.running"
+    name: "airflow_scheduler_tasks_running"
+  - match: "airflow.executor.open_slots"
+    name: "airflow_executor_open_slots"
+  - match: "airflow.executor.queued_tasks"
+    name: "airflow_executor_queued_tasks"
+  - match: "airflow.executor.running_tasks"
+    name: "airflow_executor_running_tasks"
+
+  # --- Всё остальное: generic-правило, чтобы ничего не потерять ------------
+  # Точки заменяем на подчёркивания, префикс airflow_ сохраняем.
+  - match: "airflow.(.+)"
+    match_type: regex
+    name: "airflow_${1}"
+    match_metric_type: counter

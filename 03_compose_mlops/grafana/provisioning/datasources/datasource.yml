@@ -1,0 +1,17 @@
+# ============================================================================
+#  Grafana provisioning — источник данных Prometheus
+#  Автор материалов: Чернов Евгений
+#
+#  Этот файл подхватывается Grafana при старте (папка provisioning/datasources).
+#  Источник добавляется автоматически — руками в UI ничего создавать не нужно.
+# ============================================================================
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # http://prometheus:9090 — обращение по имени сервиса внутри docker-сети.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true
