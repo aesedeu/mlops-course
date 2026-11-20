@@ -1,0 +1,111 @@
+{
+  "submission_id": "350d47cd26aa",
+  "timestamp": "2026-11-20T07:02:46.689363+00:00",
+  "client_ip": "14.253.150.77",
+  "server_host": "195.209.212.45",
+  "base_url": "http://195.209.212.45:8080",
+  "gpu": "NVIDIA GeForce RTX 3090",
+  "student": {
+    "name": "Михаил Баринов",
+    "email": "mialbarinov@edu.hse.ru",
+    "models": {
+      "vision": "mobilenet_v3_large",
+      "llm": "Qwen2.5-1.5B-Instruct"
+    },
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "version": "1.0"
+  },
+  "total_score": 97.88,
+  "max_score": 100.0,
+  "backends_verified": true,
+  "variant": {
+    "assigned": "mobilenet_v3_large",
+    "declared": "mobilenet_v3_large"
+  },
+  "counted": true,
+  "attempts_used": 1,
+  "attempts_left": 4,
+  "criteria": [
+    {
+      "id": 1,
+      "name": "endpoints",
+      "score": 10.0,
+      "max": 10,
+      "ok": true,
+      "details": "/health=200; /metrics=200; /triton/health=200; /vllm/health=200; /metrics/triton=200; /metrics/vllm=200; /metrics/node=200; /info=200; /vision=200; /chat=ok; вариант по email: mobilenet_v3_large"
+    },
+    {
+      "id": 2,
+      "name": "auth",
+      "score": 10.0,
+      "max": 10,
+      "ok": true,
+      "details": "без токена=401; мусор=401; чужая подпись=401; alg=none=401; валидный=200 (отклонено 4/4 поддельных)"
+    },
+    {
+      "id": 3,
+      "name": "vision_correctness",
+      "score": 15.0,
+      "max": 15,
+      "ok": true,
+      "details": "top5_acc=1.000 (15/15); скоры mobilenet_v3_large совпали на 15/15 (допуск 0.02)"
+    },
+    {
+      "id": 4,
+      "name": "vision_latency",
+      "score": 5.0,
+      "max": 5,
+      "ok": true,
+      "details": "p95=15.2ms (сырое 44.4 − RTT 29.2; n=12, ошибок=0); порог=400ms"
+    },
+    {
+      "id": 5,
+      "name": "chat_streaming",
+      "score": 10.0,
+      "max": 10,
+      "ok": true,
+      "details": "чанков=52, [DONE]=True, TTFT=47ms (порог 2000ms)"
+    },
+    {
+      "id": 6,
+      "name": "chat_correctness",
+      "score": 10.0,
+      "max": 10,
+      "ok": true,
+      "details": "верно 4/4"
+    },
+    {
+      "id": 7,
+      "name": "load",
+      "score": 15.0,
+      "max": 15,
+      "ok": true,
+      "details": "success=1.000 (4237/4237); 5xx=0; conc=20, dur=20s"
+    },
+    {
+      "id": 8,
+      "name": "robustness",
+      "score": 10.0,
+      "max": 10,
+      "ok": true,
+      "details": "пройдено 10/10"
+    },
+    {
+      "id": 9,
+      "name": "backends_real",
+      "score": 10.0,
+      "max": 10,
+      "ok": true,
+      "details": "Triton: +33 инференсов на 33 наших /vision; vLLM: +6 запросов на 6 наших /chat"
+    },
+    {
+      "id": 10,
+      "name": "dynamic_batching",
+      "score": 2.88,
+      "max": 5,
+      "ok": false,
+      "details": "2119 инференсов за 1593 запусков модели → 1.33 картинок на запуск (полный балл от 1.5); Triton почти не собирает батчи — посмотрите настройки dynamic_batching и то, доходят ли до Triton параллельные запросы (раздел 7 задания)"
+    }
+  ],
+  "errors": []
+}
